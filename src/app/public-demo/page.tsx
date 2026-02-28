@@ -1,12 +1,20 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { useAccount, useWalletClient, useConnect, useDisconnect, usePublicClient } from "wagmi";
+import {
+  useAccount,
+  useWalletClient,
+  useConnect,
+  useDisconnect,
+  usePublicClient,
+  useSwitchChain,
+} from "wagmi";
 import { injected } from "wagmi/connectors";
 import { wrapFetchWithPayment } from "@x402/fetch";
 import { ExactEvmScheme, toClientEvmSigner } from "@x402/evm";
 import { x402Client } from "@x402/core/client";
 import Link from "next/link";
+import { monadTestnet } from "@/config/wagmi";
 
 const MONAD_CHAIN_ID = "eip155:10143" as const;
 const MONAD_EXPLORER = "https://testnet.monadexplorer.com";
@@ -18,11 +26,12 @@ interface PaymentResult {
 }
 
 export default function PublicDemo() {
-  const { isConnected, address } = useAccount();
+  const { isConnected, address, chain } = useAccount();
   const { data: walletClient } = useWalletClient();
   const publicClient = usePublicClient();
   const { connect } = useConnect();
   const { disconnect } = useDisconnect();
+  const { switchChainAsync } = useSwitchChain();
 
   const [status, setStatus] = useState<
     "idle" | "loading" | "success" | "error"
@@ -35,13 +44,30 @@ export default function PublicDemo() {
   } | null>(null);
 
   const handleUnlock = useCallback(async () => {
-    if (!walletClient || !address || !publicClient) return;
+    if (!address) {
+      setError("Please connect your wallet first");
+      setStatus("error");
+      return;
+    }
 
     setStatus("loading");
     setError(null);
     setResult(null);
 
     try {
+      if (chain?.id !== monadTestnet.id) {
+        await switchChainAsync({ chainId: monadTestnet.id });
+      }
+
+      const wc = walletClient;
+      const pc = publicClient;
+
+      if (!wc || !pc) {
+        throw new Error(
+          "Wallet not available on Monad testnet. Please switch your wallet to Monad testnet and try again."
+        );
+      }
+
       const evmSigner = toClientEvmSigner(
         {
           address: address as `0x${string}`,
@@ -51,19 +77,19 @@ export default function PublicDemo() {
             primaryType: string;
             message: Record<string, unknown>;
           }) => {
-            return walletClient.signTypedData({
+            return wc.signTypedData({
               domain: message.domain as Parameters<
-                typeof walletClient.signTypedData
+                typeof wc.signTypedData
               >[0]["domain"],
               types: message.types as Parameters<
-                typeof walletClient.signTypedData
+                typeof wc.signTypedData
               >[0]["types"],
               primaryType: message.primaryType,
               message: message.message,
             });
           },
         },
-        publicClient
+        pc
       );
 
       const exactScheme = new ExactEvmScheme(evmSigner);
@@ -99,7 +125,7 @@ export default function PublicDemo() {
       }
       setStatus("error");
     }
-  }, [walletClient, address, publicClient]);
+  }, [walletClient, address, publicClient, chain, switchChainAsync]);
 
   return (
     <main className="min-h-screen bg-zinc-950 flex items-center justify-center p-6">
@@ -141,6 +167,14 @@ export default function PublicDemo() {
               </button>
             </div>
 
+            {chain?.id !== monadTestnet.id && (
+              <div className="bg-yellow-950 border border-yellow-800 rounded-lg p-3">
+                <p className="text-yellow-300 text-sm">
+                  Wrong network — switch to Monad Testnet to pay. The button below will prompt the switch.
+                </p>
+              </div>
+            )}
+
             <button
               onClick={handleUnlock}
               disabled={status === "loading"}
@@ -148,7 +182,9 @@ export default function PublicDemo() {
             >
               {status === "loading"
                 ? "Processing payment..."
-                : "Pay $0.001 USDC to Unlock"}
+                : chain?.id !== monadTestnet.id
+                  ? "Switch to Monad & Pay $0.001 USDC"
+                  : "Pay $0.001 USDC to Unlock"}
             </button>
           </div>
         )}
