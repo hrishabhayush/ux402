@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { withX402, type RouteConfig } from "@x402/next";
 import { x402ResourceServer, HTTPFacilitatorClient } from "@x402/core/server";
 import { ExactEvmScheme } from "@x402/evm/exact/server";
@@ -40,7 +40,7 @@ const routeConfig: RouteConfig = {
     scheme: "exact",
     network: MONAD_NETWORK,
     payTo: PAY_TO,
-    price: "$0.001",
+    price: "$0.01",
   },
   resource: "http://localhost:3000/api/premium",
 };
@@ -54,4 +54,25 @@ async function handler() {
   });
 }
 
-export const GET = withX402(handler, routeConfig, server);
+const wrappedHandler = withX402(handler, routeConfig, server);
+
+export async function GET(request: NextRequest) {
+  const paymentHeader = request.headers.get("x-payment");
+  if (paymentHeader) {
+    console.log("[x402] Incoming X-PAYMENT header (first 200):", paymentHeader.slice(0, 200));
+  }
+  const response = await wrappedHandler(request);
+  console.log("[x402] Response status:", response.status);
+  if (response.status === 402) {
+    const cloned = response.clone();
+    const body = await cloned.text();
+    console.log("[x402] 402 body:", body);
+    const pr = cloned.headers.get("payment-required");
+    if (pr) {
+      try {
+        console.log("[x402] payment-required decoded:", Buffer.from(pr, "base64").toString());
+      } catch { /* */ }
+    }
+  }
+  return response;
+}

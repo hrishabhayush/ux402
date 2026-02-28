@@ -102,7 +102,16 @@ export default function PublicDemo() {
       });
 
       if (!response.ok) {
-        throw new Error(`Request failed: ${response.status}`);
+        const errBody = await response.text().catch(() => "");
+        const paymentHeader = response.headers.get("payment-required") || "";
+        let decoded = "";
+        try { decoded = atob(paymentHeader); } catch { /* ignore */ }
+        console.error("x402 payment failed:", {
+          status: response.status,
+          body: errBody,
+          paymentRequiredHeader: decoded,
+        });
+        throw new Error(decoded || errBody || `Request failed: ${response.status}`);
       }
 
       const data: PaymentResult = await response.json();
@@ -183,8 +192,8 @@ export default function PublicDemo() {
               {status === "loading"
                 ? "Processing payment..."
                 : chain?.id !== monadTestnet.id
-                  ? "Switch to Monad & Pay $0.001 USDC"
-                  : "Pay $0.001 USDC to Unlock"}
+                  ? "Switch to Monad & Pay $0.01 USDC"
+                  : "Pay $0.01 USDC to Unlock"}
             </button>
           </div>
         )}
@@ -222,7 +231,7 @@ export default function PublicDemo() {
                 </div>
                 <div className="flex justify-between">
                   <span className="text-zinc-500">Amount</span>
-                  <span className="text-white">$0.001 USDC</span>
+                  <span className="text-white">$0.01 USDC</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-zinc-500">Network</span>
