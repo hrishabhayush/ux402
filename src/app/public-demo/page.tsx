@@ -20,9 +20,9 @@ const MONAD_CHAIN_ID = "eip155:10143" as const;
 const MONAD_EXPLORER = "https://testnet.monadexplorer.com";
 
 interface PaymentResult {
-  content: string;
+  answer: string;
+  model: string;
   unlockedAt: string;
-  note: string;
 }
 
 export default function PublicDemo() {
@@ -33,6 +33,7 @@ export default function PublicDemo() {
   const { disconnect } = useDisconnect();
   const { switchChainAsync } = useSwitchChain();
 
+  const [prompt, setPrompt] = useState("");
   const [status, setStatus] = useState<
     "idle" | "loading" | "success" | "error"
   >("idle");
@@ -41,6 +42,7 @@ export default function PublicDemo() {
   const [txInfo, setTxInfo] = useState<{
     wallet: string;
     timestamp: string;
+    txHash?: string;
   } | null>(null);
 
   const handleUnlock = useCallback(async () => {
@@ -96,22 +98,45 @@ export default function PublicDemo() {
       const client = new x402Client().register(MONAD_CHAIN_ID, exactScheme);
       const paymentFetch = wrapFetchWithPayment(fetch, client);
 
-      const response = await paymentFetch("/api/premium", {
-        method: "GET",
-        headers: { "Content-Type": "application/json" },
-      });
+      const userPrompt = prompt.trim() || "Explain x402 in one sentence";
+      const response = await paymentFetch(
+        `/api/premium?prompt=${encodeURIComponent(userPrompt)}`,
+        {
+          method: "GET",
+          headers: { "Content-Type": "application/json" },
+        },
+      );
 
       if (!response.ok) {
         const errBody = await response.text().catch(() => "");
         const paymentHeader = response.headers.get("payment-required") || "";
         let decoded = "";
-        try { decoded = atob(paymentHeader); } catch { /* ignore */ }
+        try {
+          decoded = atob(paymentHeader);
+        } catch {
+          /* ignore */
+        }
         console.error("x402 payment failed:", {
           status: response.status,
           body: errBody,
           paymentRequiredHeader: decoded,
         });
-        throw new Error(decoded || errBody || `Request failed: ${response.status}`);
+        throw new Error(
+          decoded || errBody || `Request failed: ${response.status}`,
+        );
+      }
+
+      let txHash: string | undefined;
+      const paymentResponseHeader =
+        response.headers.get("payment-response") ||
+        response.headers.get("x-payment-response");
+      if (paymentResponseHeader) {
+        try {
+          const parsed = JSON.parse(atob(paymentResponseHeader));
+          txHash = parsed.transaction;
+        } catch {
+          /* ignore */
+        }
       }
 
       const data: PaymentResult = await response.json();
@@ -119,6 +144,7 @@ export default function PublicDemo() {
       setTxInfo({
         wallet: address,
         timestamp: new Date().toISOString(),
+        txHash,
       });
       setStatus("success");
     } catch (err) {
@@ -134,7 +160,7 @@ export default function PublicDemo() {
       }
       setStatus("error");
     }
-  }, [walletClient, address, publicClient, chain, switchChainAsync]);
+  }, [walletClient, address, publicClient, chain, switchChainAsync, prompt]);
 
   return (
     <main className="min-h-screen bg-zinc-950 flex items-center justify-center p-6">
@@ -144,11 +170,11 @@ export default function PublicDemo() {
             &larr; Back
           </Link>
           <h1 className="text-2xl font-bold text-white">
-            Public x402 Payment
+            Pay-per-Query AI
           </h1>
           <p className="text-zinc-400 text-sm">
-            Standard x402 flow on Monad &mdash; payment is on-chain and fully
-            linkable to your wallet.
+            Pay $0.01 USDC per query via x402 on Monad &mdash; get an AI
+            response, fully settled on-chain.
           </p>
         </div>
 
@@ -176,10 +202,19 @@ export default function PublicDemo() {
               </button>
             </div>
 
+            <textarea
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              placeholder="Ask anything... (e.g. Explain x402 in one sentence)"
+              rows={3}
+              className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-3 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-violet-500 resize-none"
+            />
+
             {chain?.id !== monadTestnet.id && (
               <div className="bg-yellow-950 border border-yellow-800 rounded-lg p-3">
                 <p className="text-yellow-300 text-sm">
-                  Wrong network — switch to Monad Testnet to pay. The button below will prompt the switch.
+                  Wrong network — switch to Monad Testnet to pay. The button
+                  below will prompt the switch.
                 </p>
               </div>
             )}
@@ -193,7 +228,7 @@ export default function PublicDemo() {
                 ? "Processing payment..."
                 : chain?.id !== monadTestnet.id
                   ? "Switch to Monad & Pay $0.01 USDC"
-                  : "Pay $0.01 USDC to Unlock"}
+                  : "Pay $0.01 USDC & Ask AI"}
             </button>
           </div>
         )}
@@ -204,51 +239,86 @@ export default function PublicDemo() {
           </div>
         )}
 
-        {status === "success" && result && txInfo && (
+        {status === "success" && result && (
           <div className="space-y-4">
             <div className="bg-green-950 border border-green-800 rounded-lg p-4 space-y-2">
               <p className="text-green-300 text-sm font-medium">
-                Payment successful
+                AI Response
               </p>
-              <p className="text-green-200 text-sm">{result.content}</p>
+              <p className="text-green-200 text-sm whitespace-pre-wrap">
+                {result.answer}
+              </p>
+              <p className="text-green-700 text-xs mt-1">
+                Model: {result.model}
+              </p>
             </div>
 
-            <div className="bg-zinc-900 rounded-lg p-4 space-y-3">
-              <h3 className="text-white text-sm font-medium">
-                Payment Receipt (Public / Linkable)
-              </h3>
-              <div className="space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-zinc-500">Wallet</span>
+            {txInfo && (
+              <div className="bg-zinc-900 rounded-lg p-4 space-y-3">
+                <h3 className="text-white text-sm font-medium">
+                  Payment Receipt
+                </h3>
+                <div className="space-y-2 text-sm">
+                  {txInfo.txHash && (
+                    <div className="flex justify-between">
+                      <span className="text-zinc-500">Tx Hash</span>
+                      <a
+                        href={`${MONAD_EXPLORER}/tx/${txInfo.txHash}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-violet-400 font-mono hover:underline"
+                      >
+                        {txInfo.txHash.slice(0, 10)}...{txInfo.txHash.slice(-6)}
+                      </a>
+                    </div>
+                  )}
+                  <div className="flex justify-between">
+                    <span className="text-zinc-500">Wallet</span>
+                    <a
+                      href={`${MONAD_EXPLORER}/address/${txInfo.wallet}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-violet-400 font-mono hover:underline"
+                    >
+                      {txInfo.wallet.slice(0, 6)}...{txInfo.wallet.slice(-4)}
+                    </a>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-zinc-500">Amount</span>
+                    <span className="text-white">$0.01 USDC</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-zinc-500">Network</span>
+                    <span className="text-white">Monad Testnet</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-zinc-500">Time</span>
+                    <span className="text-white">
+                      {new Date(txInfo.timestamp).toLocaleTimeString()}
+                    </span>
+                  </div>
+                </div>
+                {txInfo.txHash ? (
+                  <a
+                    href={`${MONAD_EXPLORER}/tx/${txInfo.txHash}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block text-center text-xs text-violet-400 hover:text-violet-300 mt-2"
+                  >
+                    View on Monad Explorer
+                  </a>
+                ) : (
                   <a
                     href={`${MONAD_EXPLORER}/address/${txInfo.wallet}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-violet-400 font-mono hover:underline"
+                    className="block text-center text-xs text-violet-400 hover:text-violet-300 mt-2"
                   >
-                    {txInfo.wallet.slice(0, 6)}...{txInfo.wallet.slice(-4)}
+                    View wallet on Monad Explorer
                   </a>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-zinc-500">Amount</span>
-                  <span className="text-white">$0.01 USDC</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-zinc-500">Network</span>
-                  <span className="text-white">Monad Testnet</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-zinc-500">Time</span>
-                  <span className="text-white">
-                    {new Date(txInfo.timestamp).toLocaleTimeString()}
-                  </span>
-                </div>
+                )}
               </div>
-              <p className="text-yellow-500 text-xs mt-2">
-                This payment is publicly visible on-chain and linked to your
-                wallet address.
-              </p>
-            </div>
+            )}
           </div>
         )}
       </div>

@@ -9,8 +9,8 @@ export default function Home() {
             x402 Payment Demo
           </h1>
           <p className="text-zinc-400">
-            Standard x402 micropayments on Monad — pay per request, settled
-            on-chain via the facilitator.
+            Pay-per-query AI powered by x402 micropayments on Monad — each
+            request settled on-chain via the facilitator.
           </p>
         </div>
 
@@ -19,11 +19,11 @@ export default function Home() {
           className="group block bg-zinc-900 border border-zinc-800 rounded-xl p-6 text-left hover:border-violet-500 transition-colors"
         >
           <h2 className="text-lg font-semibold text-white group-hover:text-violet-400 transition-colors">
-            Public x402
+            Pay-per-Query AI
           </h2>
           <p className="text-zinc-500 text-sm mt-2">
-            Standard flow — wallet address, tx hash, and payment are all
-            visible on-chain.
+            Ask a question, pay $0.01 USDC, get an AI response — payment
+            settled on-chain via x402.
           </p>
           <span className="inline-block mt-4 text-xs text-violet-400 font-medium">
             Try it &rarr;
