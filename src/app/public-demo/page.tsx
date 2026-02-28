@@ -1,10 +1,10 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { useAccount, useWalletClient, useConnect, useDisconnect } from "wagmi";
+import { useAccount, useWalletClient, useConnect, useDisconnect, usePublicClient } from "wagmi";
 import { injected } from "wagmi/connectors";
 import { wrapFetchWithPayment } from "@x402/fetch";
-import { ExactEvmScheme } from "@x402/evm";
+import { ExactEvmScheme, toClientEvmSigner } from "@x402/evm";
 import { x402Client } from "@x402/core/client";
 import Link from "next/link";
 
@@ -20,6 +20,7 @@ interface PaymentResult {
 export default function PublicDemo() {
   const { isConnected, address } = useAccount();
   const { data: walletClient } = useWalletClient();
+  const publicClient = usePublicClient();
   const { connect } = useConnect();
   const { disconnect } = useDisconnect();
 
@@ -34,33 +35,36 @@ export default function PublicDemo() {
   } | null>(null);
 
   const handleUnlock = useCallback(async () => {
-    if (!walletClient || !address) return;
+    if (!walletClient || !address || !publicClient) return;
 
     setStatus("loading");
     setError(null);
     setResult(null);
 
     try {
-      const evmSigner = {
-        address: address as `0x${string}`,
-        signTypedData: async (message: {
-          domain: Record<string, unknown>;
-          types: Record<string, unknown>;
-          primaryType: string;
-          message: Record<string, unknown>;
-        }) => {
-          return walletClient.signTypedData({
-            domain: message.domain as Parameters<
-              typeof walletClient.signTypedData
-            >[0]["domain"],
-            types: message.types as Parameters<
-              typeof walletClient.signTypedData
-            >[0]["types"],
-            primaryType: message.primaryType,
-            message: message.message,
-          });
+      const evmSigner = toClientEvmSigner(
+        {
+          address: address as `0x${string}`,
+          signTypedData: async (message: {
+            domain: Record<string, unknown>;
+            types: Record<string, unknown>;
+            primaryType: string;
+            message: Record<string, unknown>;
+          }) => {
+            return walletClient.signTypedData({
+              domain: message.domain as Parameters<
+                typeof walletClient.signTypedData
+              >[0]["domain"],
+              types: message.types as Parameters<
+                typeof walletClient.signTypedData
+              >[0]["types"],
+              primaryType: message.primaryType,
+              message: message.message,
+            });
+          },
         },
-      };
+        publicClient
+      );
 
       const exactScheme = new ExactEvmScheme(evmSigner);
       const client = new x402Client().register(MONAD_CHAIN_ID, exactScheme);
@@ -95,7 +99,7 @@ export default function PublicDemo() {
       }
       setStatus("error");
     }
-  }, [walletClient, address]);
+  }, [walletClient, address, publicClient]);
 
   return (
     <main className="min-h-screen bg-zinc-950 flex items-center justify-center p-6">
